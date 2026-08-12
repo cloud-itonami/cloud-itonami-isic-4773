@@ -551,75 +551,135 @@
                       "<span class=\"muted\">—（auto-commit）</span>")))
              log)))))
 
+(defn- ledger-row
+  "One audit-ledger row. `by` is the approver the SSoT record kept for this
+  fact, or nil -- resolved by the caller's positional join, never guessed
+  from the fact's own contents (the fact does not carry one)."
+  [i by {:keys [t op store-id disposition basis confidence phase-reason]}]
+  (row (str "<span class=\"num\">" (inc i) "</span>")
+       (case t
+         :committed "<span class=\"ok\">committed</span>"
+         :approval-rejected "<span class=\"warn\">approval-rejected</span>"
+         :governor-hold (if (seq basis)
+                          "<span class=\"critical\">governor-hold</span>"
+                          "<span class=\"warn\">governor-hold</span>")
+         (esc (kw-name t)))
+       (code (str ":" (kw-name op)))
+       (code store-id)
+       (esc (kw-name disposition))
+       (cond
+         (seq basis) (kws basis)
+         phase-reason (str (code (str ":" (kw-name phase-reason)))
+                           " <span class=\"muted\">(rollout)</span>")
+         :else "<span class=\"muted\">—</span>")
+       (if confidence (str "<span class=\"num\">" (esc confidence) "</span>")
+           "<span class=\"muted\">—</span>")
+       (if by
+         (str "<span class=\"ok\">" (esc by) "</span>")
+         "<span class=\"muted\">—</span>")))
+
 (defn- ledger-section [db]
-  (let [ledger (store/ledger db)
-        committed (committed-facts db)
-        log (vec (store/coordination-log db))
+  (let [ledger (vec (store/ledger db))
+        log    (vec (store/coordination-log db))
         ;; The :commit node writes the SSoT record and the ledger fact in
-        ;; the same step, so the k-th :committed fact is the k-th
-        ;; coordination record. -main asserts the counts match before this
-        ;; join is ever rendered.
-        approver (zipmap committed (map #(get-in % [:payload :approved-by]) log))]
+        ;; the same step, so the k-th `:committed` fact corresponds to the
+        ;; k-th coordination record, and `-main` asserts the two counts
+        ;; agree before this is ever rendered.
+        ;;
+        ;; The join MUST be POSITIONAL, not value-keyed. `commit-fact`
+        ;; carries only {op, actor, store-id, basis, summary}, and the
+        ;; summary prints the patch's KEYS rather than its values -- so two
+        ;; different runs of the same op against the same store with the
+        ;; same patch shape produce BYTE-IDENTICAL facts. r01 (auto-commit)
+        ;; and r08 (committed after human sign-off) are exactly that pair.
+        ;; Keying a map by the fact would collapse them and print r08's
+        ;; approver on r01's row -- a fabricated attribution. Measured
+        ;; against this repo's own `clojure -M:dev:run`, whose ledger opens
+        ;; with two identical `:committed` facts.
+        rows (:rows
+              (reduce
+               (fn [{:keys [k rows]} [i f]]
+                 (let [committed? (= :committed (:t f))
+                       by         (when committed?
+                                    (get-in log [k :payload :approved-by]))]
+                   {:k    (cond-> k committed? inc)
+                    :rows (conj rows (ledger-row i by f))}))
+               {:k 0 :rows []}
+               (map-indexed vector ledger)))]
     (section
      "監査台帳（append-only）"
      (str "<code>specialtyretailops.store/ledger</code> の全 "
           (count ledger) " 件。commit・hold・却下が同じ 1 本の不変列に載る。"
           "<code>:basis</code> が空の <code>:governor-hold</code> は"
-          "フェーズ由来の hold（回復可能）、空でないものが governor の HARD hold（恒久）。")
+          "フェーズ由来の hold（回復可能）、空でないものが governor の HARD hold（恒久）。"
+          "「承認者」列は台帳の項目ではない —— 台帳の <code>:committed</code> は承認者を"
+          "持たないので、<code>coordination-log</code> の同じ順番の記録から引いている"
+          "（下の脚注を参照）。")
      (table ["#" "fact" "op" "store" "disposition" "basis" "confidence" "承認者"]
-            (map-indexed
-             (fn [i {:keys [t op store-id disposition basis confidence phase-reason] :as f}]
-               (row (str "<span class=\"num\">" (inc i) "</span>")
-                    (case t
-                      :committed "<span class=\"ok\">committed</span>"
-                      :approval-rejected "<span class=\"warn\">approval-rejected</span>"
-                      :governor-hold (if (seq basis)
-                                       "<span class=\"critical\">governor-hold</span>"
-                                       "<span class=\"warn\">governor-hold</span>")
-                      (esc (kw-name t)))
-                    (code (str ":" (kw-name op)))
-                    (code store-id)
-                    (esc (kw-name disposition))
-                    (cond
-                      (seq basis) (kws basis)
-                      phase-reason (str (code (str ":" (kw-name phase-reason)))
-                                        " <span class=\"muted\">(rollout)</span>")
-                      :else "<span class=\"muted\">—</span>")
-                    (if confidence (str "<span class=\"num\">" (esc confidence) "</span>")
-                        "<span class=\"muted\">—</span>")
-                    (if-let [by (get approver f)]
-                      (str "<span class=\"ok\">" (esc by) "</span>")
-                      "<span class=\"muted\">—</span>")))
-             ledger)))))
+            rows))))
+
+(def ^:private attribution-keys
+  "The keys a fact/record could plausibly use to name the human who signed
+  off. Probed against what the run ACTUALLY produced -- the point is to
+  measure, not to assume any one of them is the convention."
+  #{:approved-by :by :approver :approved-by-id})
 
 (defn- attribution-note
-  "Derived at render time by looking at what the store ACTUALLY kept, so
-  this paragraph self-corrects if the store is later changed. It does not
-  assert a defect it has not measured."
+  "Derived at render time by probing what this run's store ACTUALLY kept,
+  so the paragraph self-corrects if the store is later changed. It states
+  a limitation only where it measured one -- and it never silently omits
+  the approver, because a reader cannot otherwise tell 'nobody approved'
+  from 'the store did not keep who did'."
   [db]
-  (let [log       (store/coordination-log db)
-        kept      (filter #(get-in % [:payload :approved-by]) log)
-        rejects   (rejections db)
-        reject-by (filter :by rejects)]
+  (let [log        (store/coordination-log db)
+        kept       (filter #(get-in % [:payload :approved-by]) log)
+        committed  (committed-facts db)
+        ;; Does the LEDGER fact itself name an approver? Probed by looking
+        ;; at the keys the :commit node actually wrote, not by reading the
+        ;; source of `commit-fact`.
+        fact-keys  (into #{} (mapcat keys) committed)
+        fact-attr  (seq (filter fact-keys attribution-keys))
+        rejects    (rejections db)
+        reject-key (seq (filter (into #{} (mapcat keys) rejects) attribution-keys))]
     (str
-     "<strong>承認者の帰属について（実測）:</strong> "
+     "<strong>承認者の帰属について（このページを生成した実行で実測）:</strong> "
+     ;; (1) the SSoT record
      (if (seq kept)
-       (str "承認を経てコミットされた " (count kept) " 件は、"
-            "<code>commit-record!</code> が受け取る記録の <code>:payload</code> に "
-            "<code>:approved-by</code> を保持しており、上の表はそれを表示している。")
+       (str "SSoT 側は保持している —— 人間の承認を経てコミットされた " (count kept)
+            " 件は、<code>commit-record!</code> が受け取る記録の <code>:payload</code> に "
+            "<code>:approved-by</code> を持ったまま <code>coordination-log</code> に積まれる。"
+            "「コミット済み記録」表の承認者列はそれをそのまま読んでいる。")
        (str "このストアの <code>commit-record!</code> は承認者を保持していない —— "
-            "承認済みコミットが " (count log) " 件ある一方で "
-            "<code>:payload</code> に <code>:approved-by</code> を持つ記録は 0 件だった。"))
+            "コミット済み記録が " (count log) " 件ある一方で "
+            "<code>:payload</code> に <code>:approved-by</code> を持つものは 0 件だった。"))
      " "
+     ;; (2) the ledger fact
+     (if fact-attr
+       (str "監査台帳の <code>:committed</code> ファクト自体も "
+            (str/join "・" (map #(code (str ":" (kw-name %))) (sort-by kw-name fact-attr)))
+            " を持っている。")
+       (str "ただし<strong>監査台帳のファクト自体は承認者を持たない</strong> —— "
+            "この実行の " (count committed) " 件の <code>:committed</code> が実際に持つキーは "
+            (str/join "・" (map #(code (str ":" (kw-name %))) (sort-by kw-name fact-keys)))
+            " だけで、"
+            (str/join "・" (map #(code (str ":" (kw-name %))) (sort-by kw-name attribution-keys)))
+            " のいずれも含まない。グラフは <code>:approval-granted</code> という監査ファクトを"
+            "作ってはいるが、それを台帳へ書くのは <code>:commit</code> ノードではないため、"
+            "台帳には残らない。上の台帳表の承認者列は台帳の項目ではなく、"
+            "<code>coordination-log</code> の同順の記録から引いた補助表示である。"))
+     " "
+     ;; (3) the rejection
      (if (seq rejects)
-       (if (seq reject-by)
+       (if reject-key
          (str "却下 " (count rejects) " 件についても却下者が台帳に残っている。")
-         (str "一方、却下された " (count rejects) " 件には却下者が残っていない —— "
-              "<code>governor/hold-fact</code> は要求元の <code>:actor-id</code> しか"
-              "書かず、resume で渡された <code>:by</code> を読まないため。"
+         (str "却下された " (count rejects) " 件には却下者が残っていない —— "
+              "<code>governor/hold-fact</code> は要求元の <code>:actor-id</code>（"
+              (code coordinator-id) "）しか書かず、resume で渡された "
+              (code ":by") " を読まない。"
               "つまり台帳だけを見ても「誰も承認しなかった」のか"
               "「誰が却下したかを保存していない」のかは区別できない。"
-              "これは仕様ではなくこのストアの現在地であり、直れば上の表に自動的に現れる。"))
+              "これは仕様ではなくこのストアの現在地であり、直ればこの段落は"
+              "レンダー時に自動的に言い直す。"))
        "この実行には却下が含まれていない。"))))
 
 ;; ----------------------------- document -----------------------------

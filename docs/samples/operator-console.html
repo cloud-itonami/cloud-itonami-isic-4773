@@ -2580,11 +2580,11 @@ img,svg { max-width: 100%; height: auto; }
   </section>
   <section class="card">
     <h2>監査台帳（append-only）</h2>
-    <p class="muted"><code>specialtyretailops.store/ledger</code> の全 15 件。commit・hold・却下が同じ 1 本の不変列に載る。<code>:basis</code> が空の <code>:governor-hold</code> はフェーズ由来の hold（回復可能）、空でないものが governor の HARD hold（恒久）。</p>
+    <p class="muted"><code>specialtyretailops.store/ledger</code> の全 15 件。commit・hold・却下が同じ 1 本の不変列に載る。<code>:basis</code> が空の <code>:governor-hold</code> はフェーズ由来の hold（回復可能）、空でないものが governor の HARD hold（恒久）。「承認者」列は台帳の項目ではない —— 台帳の <code>:committed</code> は承認者を持たないので、<code>coordination-log</code> の同じ順番の記録から引いている（下の脚注を参照）。</p>
     <table>
       <thead><tr><th>#</th><th>fact</th><th>op</th><th>store</th><th>disposition</th><th>basis</th><th>confidence</th><th>承認者</th></tr></thead>
       <tbody>
-        <tr><td><span class="num">1</span></td><td><span class="ok">committed</span></td><td><code>:log-sales-record</code></td><td><code>store-1</code></td><td>commit</td><td><code>:store-1</code></td><td><span class="muted">—</span></td><td><span class="ok">quality-coordinator-1</span></td></tr>
+        <tr><td><span class="num">1</span></td><td><span class="ok">committed</span></td><td><code>:log-sales-record</code></td><td><code>store-1</code></td><td>commit</td><td><code>:store-1</code></td><td><span class="muted">—</span></td><td><span class="muted">—</span></td></tr>
         <tr><td><span class="num">2</span></td><td><span class="ok">committed</span></td><td><code>:schedule-staffing-operation</code></td><td><code>store-1</code></td><td>commit</td><td><code>:store-1</code></td><td><span class="muted">—</span></td><td><span class="muted">—</span></td></tr>
         <tr><td><span class="num">3</span></td><td><span class="ok">committed</span></td><td><code>:coordinate-supply-order</code></td><td><code>store-2</code></td><td>commit</td><td><code>:store-2</code></td><td><span class="muted">—</span></td><td><span class="muted">—</span></td></tr>
         <tr><td><span class="num">4</span></td><td><span class="ok">committed</span></td><td><code>:log-sales-record</code></td><td><code>store-2</code></td><td>commit</td><td><code>:store-2</code></td><td><span class="muted">—</span></td><td><span class="ok">quality-coordinator-1</span></td></tr>
@@ -2604,7 +2604,7 @@ img,svg { max-width: 100%; height: auto; }
   </section>
 </main>
 <footer>
-<p><strong>承認者の帰属について（実測）:</strong> 承認を経てコミットされた 4 件は、<code>commit-record!</code> が受け取る記録の <code>:payload</code> に <code>:approved-by</code> を保持しており、上の表はそれを表示している。 一方、却下された 1 件には却下者が残っていない —— <code>governor/hold-fact</code> は要求元の <code>:actor-id</code> しか書かず、resume で渡された <code>:by</code> を読まないため。つまり台帳だけを見ても「誰も承認しなかった」のか「誰が却下したかを保存していない」のかは区別できない。これは仕様ではなくこのストアの現在地であり、直れば上の表に自動的に現れる。</p>
+<p><strong>承認者の帰属について（このページを生成した実行で実測）:</strong> SSoT 側は保持している —— 人間の承認を経てコミットされた 4 件は、<code>commit-record!</code> が受け取る記録の <code>:payload</code> に <code>:approved-by</code> を持ったまま <code>coordination-log</code> に積まれる。「コミット済み記録」表の承認者列はそれをそのまま読んでいる。 ただし<strong>監査台帳のファクト自体は承認者を持たない</strong> —— この実行の 7 件の <code>:committed</code> が実際に持つキーは <code>:actor</code>・<code>:basis</code>・<code>:disposition</code>・<code>:op</code>・<code>:store-id</code>・<code>:summary</code>・<code>:t</code> だけで、<code>:approved-by</code>・<code>:approved-by-id</code>・<code>:approver</code>・<code>:by</code> のいずれも含まない。グラフは <code>:approval-granted</code> という監査ファクトを作ってはいるが、それを台帳へ書くのは <code>:commit</code> ノードではないため、台帳には残らない。上の台帳表の承認者列は台帳の項目ではなく、<code>coordination-log</code> の同順の記録から引いた補助表示である。 却下された 1 件には却下者が残っていない —— <code>governor/hold-fact</code> は要求元の <code>:actor-id</code>（<code>coord-1</code>）しか書かず、resume で渡された <code>:by</code> を読まない。つまり台帳だけを見ても「誰も承認しなかった」のか「誰が却下したかを保存していない」のかは区別できない。これは仕様ではなくこのストアの現在地であり、直ればこの段落はレンダー時に自動的に言い直す。</p>
 <p>このページはビルド時に <code>clojure -M:dev:render-html</code> が <code>specialtyretailops.render-html</code> を実行して生成している。表示されている店舗・仕入先・提案・判定・保留理由・台帳行は、<code>specialtyretailops.operation</code> の langgraph StateGraph を実際に 15 回走らせた結果であり、手書きの値は 1 つも含まない。タイムスタンプや乱数を含まないため、同じシードに対する再生成は byte 単位で同一になる。</p>
 <p class="muted">cloud-itonami-isic-4773 · AGPL-3.0-or-later · flagship checklist item 2 (ADR-2607189300)</p>
 </footer>
