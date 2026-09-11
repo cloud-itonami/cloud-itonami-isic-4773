@@ -16,7 +16,7 @@
   `supply-cost-threshold`, `scope-excluded-terms`, `phases`), never
   re-typed, so the page cannot drift away from the code it documents.
 
-  `clojure -M:dev:run` (this repo's own `specialtyretailops.sim`) was run
+  `kbb -M:dev:run` (this repo's own `specialtyretailops.sim`) was run
   BEFORE this file was written to confirm the seeded ids are real:
   `store-1`/`store-2`/`store-3` and `vendor-1`/`vendor-2` all exist in
   `specialtyretailops.store/demo-data`, so the scenario below is built
@@ -33,7 +33,7 @@
   Deterministic: no timestamps, no random ids, every set and map
   iterated in a sorted order, so two consecutive runs are byte-identical.
 
-  Usage: `clojure -M:dev:render-html [out-file]`
+  Usage: `kbb -M:dev:render-html [out-file]`
   (default `docs/samples/operator-console.html`)."
   (:require [kotoba.lang.text :as str]
             [jp-go-dds.skin]
@@ -594,7 +594,7 @@
         ;; and r08 (committed after human sign-off) are exactly that pair.
         ;; Keying a map by the fact would collapse them and print r08's
         ;; approver on r01's row -- a fabricated attribution. Measured
-        ;; against this repo's own `clojure -M:dev:run`, whose ledger opens
+        ;; against this repo's own `kbb -M:dev:run`, whose ledger opens
         ;; with two identical `:committed` facts.
         rows (:rows
               (reduce
@@ -717,7 +717,7 @@
    "</main>\n"
    "<footer>\n"
    "<p>" (attribution-note db) "</p>\n"
-   "<p>このページはビルド時に <code>clojure -M:dev:render-html</code> が "
+   "<p>このページはビルド時に <code>kbb -M:dev:render-html</code> が "
    "<code>specialtyretailops.render-html</code> を実行して生成している。"
    "表示されている店舗・仕入先・提案・判定・保留理由・台帳行は、"
    "<code>specialtyretailops.operation</code> の langgraph StateGraph を実際に "
