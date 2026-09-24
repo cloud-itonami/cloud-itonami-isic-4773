@@ -2,7 +2,7 @@
   "Pure unit tests of `specialtyretailops.governor/check` against
   hand-built proposals -- the fast, focused complement to
   `governor-contract-test`'s full-graph integration coverage."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [specialtyretailops.advisor :as adv]
             [specialtyretailops.governor :as gov]
             [specialtyretailops.store :as store]))
