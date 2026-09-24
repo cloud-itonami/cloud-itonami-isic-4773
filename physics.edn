@@ -1,0 +1,33 @@
+;; What this vertical's robot physically does, declared for
+;; kotoba.robotics.process (kotoba-lang/robotics). `kbb -M:dev:physics` runs it.
+;;
+;; README "Robotics premise": a robot may perform the physical work of a
+;; single-category specialty shop (ISIC 4773, the catch-all: jewellery,
+;; optical, flowers / plants / pets and similar) -- shelfing, picking,
+;; restocking. Here: an arm shelving incoming cartons, and -- for the pet
+;; shop members of the class -- the circulation pump that keeps a rack of
+;; display aquaria filtered.
+;;
+;; Every number without a cited source is marked `estimate` in its :basis.
+;; Replacing an estimate with a sourced value is this bot's growth work.
+{:physics/schema "itonami.physical-ai.spec.v1"
+ :repo "cloud-itonami/cloud-itonami-isic-4773"
+ :cases
+ [{:id :stock-carton-to-shelf
+   :kind :manipulator
+   :procedure "arm lifts an incoming stock carton from the delivery tote onto the upper stockroom shelf"
+   :params {:l1-m 0.55 :l2-m 0.50 :m1-kg 4.5 :m2-kg 3.0
+            :from [0.65 0.15] :to [0.30 0.90] :duration-s 2.5 :steps 500}
+   :sweep {:param :payload-kg :values [1.0 3.0 5.0 8.0 12.0]}
+   :quantity :peak-tau1-nm
+   :limit {:max 90.0 :basis "estimate: continuous shoulder torque of a ~7 kg-payload collaborative arm"}
+   :boundary {:lo 0.2 :hi 40.0}}
+  {:id :aquarium-rack-circulation
+   :kind :pipe-flow
+   :procedure "sump pump pushes filtered water through 25 m of 25 mm pipe up 1.5 m to the top row of a pet-shop aquarium rack"
+   :params {:diameter-m 0.025 :length-m 25.0 :roughness-m 1.5e-6
+            :density-kg-m3 998.0 :viscosity-pa-s 1.0e-3 :pump-efficiency 0.35 :elevation-m 1.5}
+   :sweep {:param :q-m3s :values [2.0e-4 4.0e-4 6.0e-4 8.0e-4 1.0e-3]}
+   :quantity :head-m
+   :limit {:max 4.0 :basis "estimate: shut-off head of a mid-size aquarium sump pump is ~4-5 m; usable delivery head is lower"}
+   :boundary {:lo 1.0e-4 :hi 2.0e-3}}]}
